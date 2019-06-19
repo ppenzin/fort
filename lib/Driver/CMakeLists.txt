@@ -7,7 +7,15 @@ set(LLVM_LINK_COMPONENTS
 add_fort_library(fortDriver
   DriverOptions.cpp
   Driver.cpp
+  ToolChains/AVR.cpp
+  ToolChains/Ananas.cpp
+  ToolChains/BareMetal.cpp
+  ToolChains/Gnu.cpp
+
   DEPENDS
   FortDriverOptions
+
+  LINK_LIBS
+  fortBasic
 )
 
