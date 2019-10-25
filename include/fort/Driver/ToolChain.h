@@ -10,6 +10,7 @@
 #ifndef LLVM_FORT_DRIVER_TOOLCHAIN_H
 #define LLVM_FORT_DRIVER_TOOLCHAIN_H
 
+#include "fort/Basic/DebugInfoOptions.h"
 #include "fort/Basic/LLVM.h"
 #include "fort/Basic/Sanitizers.h"
 #include "fort/Driver/Action.h"
