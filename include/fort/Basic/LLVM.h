@@ -36,6 +36,7 @@ template <unsigned InternalLen> class SmallString;
 template <typename T, unsigned N> class SmallVector;
 template <typename T> class SmallVectorImpl;
 template <typename T> class Optional;
+template <class T> class Expected;
 
 // Reference counting
 template <typename T> class IntrusiveRefCntPtr;
@@ -66,6 +67,9 @@ using llvm::SmallVectorImpl;
 using llvm::StringRef;
 using llvm::Twine;
 using llvm::VersionTuple;
+
+//Error handling
+using llvm::Expected;
 
 // Reference counting
 using llvm::IntrusiveRefCntPtr;

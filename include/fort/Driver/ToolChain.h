@@ -12,6 +12,7 @@
 
 #include "fort/Basic/DebugInfoOptions.h"
 #include "fort/Basic/LLVM.h"
+#include "fort/Basic/LangOptions.h"
 #include "fort/Basic/Sanitizers.h"
 #include "fort/Driver/Action.h"
 #include "fort/Driver/Multilib.h"
@@ -37,17 +38,16 @@ class ArgList;
 class DerivedArgList;
 
 } // namespace opt
-} // namespace llvm
-
-namespace fort {
-
-class ObjCRuntime;
-
 namespace vfs {
 
 class FileSystem;
 
 } // namespace vfs
+} // namespace llvm
+
+namespace fort {
+
+class ObjCRuntime;
 
 namespace driver {
 
@@ -117,6 +117,9 @@ private:
 
   const RTTIMode CachedRTTIMode;
 
+  /// The list of toolchain specific path prefixes to search for libraries.
+  path_list LibraryPaths;
+
   /// The list of toolchain specific path prefixes to search for files.
   path_list FilePaths;
 
@@ -147,6 +150,7 @@ private:
 
 protected:
   MultilibSet Multilibs;
+  Multilib SelectedMultilib;
 
   ToolChain(const Driver &D, const llvm::Triple &T,
             const llvm::opt::ArgList &Args);
@@ -180,7 +184,7 @@ public:
   // Accessors
 
   const Driver &getDriver() const { return D; }
-  vfs::FileSystem &getVFS() const;
+  llvm::vfs::FileSystem &getVFS() const;
   const llvm::Triple &getTriple() const { return Triple; }
 
   /// Get the toolchain's aux triple, if it has one.
@@ -214,6 +218,9 @@ public:
     return EffectiveTriple;
   }
 
+  path_list &getLibraryPaths() { return LibraryPaths; }
+  const path_list &getLibraryPaths() const { return LibraryPaths; }
+
   path_list &getFilePaths() { return FilePaths; }
   const path_list &getFilePaths() const { return FilePaths; }
 
@@ -221,6 +228,8 @@ public:
   const path_list &getProgramPaths() const { return ProgramPaths; }
 
   const MultilibSet &getMultilibs() const { return Multilibs; }
+
+  const Multilib &getMultilib() const { return SelectedMultilib; }
 
   const SanitizerArgs& getSanitizerArgs() const;
 
@@ -341,6 +350,12 @@ public:
     return 0;
   }
 
+  /// Get the default trivial automatic variable initialization.
+  virtual LangOptions::TrivialAutoVarInitKind
+  GetDefaultTrivialAutoVarInit() const {
+    return LangOptions::TrivialAutoVarInitKind::Uninitialized;
+  }
+
   /// GetDefaultLinker - Get the default linker to use.
   virtual const char *getDefaultLinker() const { return "ld"; }
 
@@ -373,6 +388,9 @@ public:
   /// needsProfileRT - returns true if instrumentation profile is on.
   static bool needsProfileRT(const llvm::opt::ArgList &Args);
 
+  /// Returns true if gcov instrumentation (-fprofile-arcs or --coverage) is on.
+  static bool needsGCovInstrumentation(const llvm::opt::ArgList &Args);
+
   /// IsUnwindTablesDefault - Does this tool chain use -funwind-tables
   /// by default.
   virtual bool IsUnwindTablesDefault(const llvm::opt::ArgList &Args) const;
@@ -395,6 +413,11 @@ public:
   /// Complain if this tool chain doesn't support Objective-C ARC.
   virtual void CheckObjCARC() const {}
 
+  /// Get the default debug info format. Typically, this is DWARF.
+  virtual codegenoptions::DebugInfoFormat getDefaultDebugFormat() const {
+    return codegenoptions::DIF_DWARF;
+  }
+
   /// UseDwarfDebugFlags - Embed the compile options to fort into the Dwarf
   /// compile unit information.
   virtual bool UseDwarfDebugFlags() const { return false; }
@@ -413,6 +436,15 @@ public:
   virtual llvm::DebuggerKind getDefaultDebuggerTuning() const {
     return llvm::DebuggerKind::GDB;
   }
+
+  /// Does this toolchain supports given debug info option or not.
+  virtual bool supportsDebugInfoOption(const llvm::opt::Arg *) const {
+    return true;
+  }
+
+  /// Adjust debug information kind considering all passed options.
+  virtual void adjustDebugInfoKind(codegenoptions::DebugInfoKind &DebugInfoKind,
+                                   const llvm::opt::ArgList &Args) const {}
 
   /// GetExceptionModel - Return the tool chain exception model.
   virtual llvm::ExceptionHandling
@@ -455,7 +487,7 @@ public:
   /// FIXME: this really belongs on some sort of DeploymentTarget abstraction
   virtual bool hasBlocksRuntime() const { return true; }
 
-  /// Add the fort fc1 arguments for system include paths.
+  /// Add the fort cc1 arguments for system include paths.
   ///
   /// This routine is responsible for adding the necessary cc1 arguments to
   /// include headers from standard system header directories.
@@ -480,7 +512,7 @@ public:
   // given compilation arguments.
   virtual CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const;
 
-  /// AddFortCXXStdlibIncludeArgs - Add the fort -fc1 level arguments to set
+  /// AddFortCXXStdlibIncludeArgs - Add the fort -cc1 level arguments to set
   /// the include paths to use for the given C++ standard library type.
   virtual void
   AddFortCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
