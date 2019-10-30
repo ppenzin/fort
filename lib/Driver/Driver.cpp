@@ -93,7 +93,7 @@ Driver::Driver(StringRef FortExecutable, StringRef TargetTriple,
                DiagnosticsEngine &Diags,
                IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
     : Opts(createDriverOptTable()), Diags(Diags), VFS(std::move(VFS)),
-      Mode(GCCMode), SaveTemps(SaveTempsNone), BitcodeEmbed(EmbedNone),
+      Mode(FortranMode), SaveTemps(SaveTempsNone), BitcodeEmbed(EmbedNone),
       LTOMode(LTOK_None), FortExecutable(FortExecutable),
       SysRoot(DEFAULT_SYSROOT), DriverTitle("fort LLVM compiler"),
       CCPrintOptionsFilename(nullptr), CCPrintHeadersFilename(nullptr),
@@ -155,10 +155,8 @@ void Driver::setDriverModeFromOption(StringRef Opt) {
   StringRef Value = Opt.drop_front(OptName.size());
 
   if (auto M = llvm::StringSwitch<llvm::Optional<DriverMode>>(Value)
-                   .Case("gcc", GCCMode)
-                   .Case("g++", GXXMode)
+                   .Case("fortran", FortranMode)
                    .Case("cpp", CPPMode)
-                   .Case("cl", CLMode)
                    .Default(None))
     Mode = *M;
   else
@@ -166,14 +164,14 @@ void Driver::setDriverModeFromOption(StringRef Opt) {
 }
 
 InputArgList Driver::ParseArgStrings(ArrayRef<const char *> ArgStrings,
-                                     bool IsClCompatMode, bool &ContainsError) {
+                                     bool &ContainsError) {
   llvm::PrettyStackTraceString CrashInfo("Command line argument parsing");
   ContainsError = false;
 
   unsigned IncludedFlagsBitmask;
   unsigned ExcludedFlagsBitmask;
   std::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
-      getIncludeExcludeOptionFlagMasks(IsClCompatMode);
+      getIncludeExcludeOptionFlagMasks();
 
   unsigned MissingArgIndex, MissingArgCount;
   InputArgList Args =
@@ -224,14 +222,9 @@ InputArgList Driver::ParseArgStrings(ArrayRef<const char *> ArgStrings,
     std::string Nearest;
     if (getOpts().findNearest(ArgString, Nearest, IncludedFlagsBitmask,
                               ExcludedFlagsBitmask) > 1) {
-      DiagID = IsCLMode() ? diag::warn_drv_unknown_argument_fort_cl
-                          : diag::err_drv_unknown_argument;
-      Diags.Report(DiagID) << ArgString;
+      Diags.Report(diag::err_drv_unknown_argument) << ArgString;
     } else {
-      DiagID = IsCLMode()
-                   ? diag::warn_drv_unknown_argument_fort_cl_with_suggestion
-                   : diag::err_drv_unknown_argument_with_suggestion;
-      Diags.Report(DiagID) << ArgString << Nearest;
+      Diags.Report(diag::err_drv_unknown_argument_with_suggestion) << ArgString << Nearest;
     }
     ContainsError |= Diags.getDiagnosticLevel(DiagID, SourceLocation()) >
                      DiagnosticsEngine::Warning;
@@ -738,7 +731,7 @@ bool Driver::readConfigFile(StringRef FileName) {
   ConfigFile = CfgFileName.str();
   bool ContainErrors;
   CfgOptions = llvm::make_unique<InputArgList>(
-      ParseArgStrings(NewCfgArgs, IsCLMode(), ContainErrors));
+      ParseArgStrings(NewCfgArgs, ContainErrors));
   if (ContainErrors) {
     CfgOptions.reset();
     return true;
@@ -932,7 +925,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   // Arguments specified in command line.
   bool ContainsError;
   CLOptions = llvm::make_unique<InputArgList>(
-      ParseArgStrings(ArgList.slice(1), IsCLMode(), ContainsError));
+      ParseArgStrings(ArgList.slice(1), ContainsError));
 
   // Try parsing configuration file.
   if (!ContainsError)
@@ -963,27 +956,6 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
       appendOneArg(Opt, BaseArg);
     }
 
-  // In CL mode, look for any pass-through arguments
-  if (IsCLMode() && !ContainsError) {
-    SmallVector<const char *, 16> CLModePassThroughArgList;
-    for (const auto *A : Args.filtered(options::OPT__SLASH_fort)) {
-      A->claim();
-      CLModePassThroughArgList.push_back(A->getValue());
-    }
-
-    if (!CLModePassThroughArgList.empty()) {
-      // Parse any pass through args using default fort processing rather
-      // than fort-cl processing.
-      auto CLModePassThroughOptions = llvm::make_unique<InputArgList>(
-          ParseArgStrings(CLModePassThroughArgList, false, ContainsError));
-
-      if (!ContainsError)
-        for (auto *Opt : *CLModePassThroughOptions) {
-          appendOneArg(Opt, nullptr);
-        }
-    }
-  }
-
   // FIXME: This stuff needs to go into the Compilation, not the driver.
   bool CCCPrintPhases;
 
@@ -1009,17 +981,6 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   GenReproducer = Args.hasFlag(options::OPT_gen_reproducer,
                                options::OPT_fno_crash_diagnostics,
                                !!::getenv("FORCE_FORT_DIAGNOSTICS_CRASH"));
-  // FIXME: TargetTriple is used by the target-prefixed calls to as/ld
-  // and getToolChain is const.
-  if (IsCLMode()) {
-    // fort-cl targets MSVC-style Win32.
-    llvm::Triple T(TargetTriple);
-    T.setOS(llvm::Triple::Win32);
-    T.setVendor(llvm::Triple::PC);
-    T.setEnvironment(llvm::Triple::MSVC);
-    T.setObjectFormat(llvm::Triple::COFF);
-    TargetTriple = T.str();
-  }
   if (const Arg *A = Args.getLastArg(options::OPT_target))
     TargetTriple = A->getValue();
   if (const Arg *A = Args.getLastArg(options::OPT_ccc_install_dir))
@@ -1485,7 +1446,7 @@ void Driver::PrintHelp(bool ShowHidden) const {
   unsigned IncludedFlagsBitmask;
   unsigned ExcludedFlagsBitmask;
   std::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
-      getIncludeExcludeOptionFlagMasks(IsCLMode());
+      getIncludeExcludeOptionFlagMasks();
 
   ExcludedFlagsBitmask |= options::NoDriverOption;
   if (!ShowHidden)
@@ -1978,22 +1939,6 @@ static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
     }
   }
 
-  if (D.getVFS().exists(Path))
-    return true;
-
-  if (D.IsCLMode()) {
-    if (!llvm::sys::path::is_absolute(Twine(Path)) &&
-        llvm::sys::Process::FindInEnvPath("LIB", Value))
-      return true;
-
-    if (Args.hasArg(options::OPT__SLASH_link) && Ty == types::TY_Object) {
-      // Arguments to the /link flag might cause the linker to search for object
-      // and library files in paths we don't know about. Don't error in such
-      // cases.
-      return true;
-    }
-  }
-
   D.Diag(fort::diag::err_drv_no_such_file) << Path;
   return false;
 }
@@ -2052,8 +1997,7 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
           // Otherwise emit an error but still use a valid type to avoid
           // spurious errors (e.g., no inputs).
           if (!Args.hasArgNoClaim(options::OPT_E) && !CCCIsCPP())
-            Diag(IsCLMode() ? fort::diag::err_drv_unknown_stdin_type_fort_cl
-                            : fort::diag::err_drv_unknown_stdin_type);
+            Diag(fort::diag::err_drv_unknown_stdin_type);
           Ty = types::TY_C;
         } else {
           // Otherwise lookup by extension.
@@ -2067,8 +2011,6 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
           if (Ty == types::TY_INVALID) {
             if (CCCIsCPP())
               Ty = types::TY_C;
-            else if (IsCLMode() && Args.hasArgNoClaim(options::OPT_E))
-              Ty = types::TY_CXX;
             else
               Ty = types::TY_Object;
           }
@@ -3115,9 +3057,6 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
   if (FinalPhase == phases::Link) {
     if (Args.hasArg(options::OPT_emit_llvm))
       Diag(fort::diag::err_drv_emit_llvm_link);
-    if (IsCLMode() && LTOMode != LTOK_None &&
-        !Args.getLastArgValue(options::OPT_fuse_ld_EQ).equals_lower("lld"))
-      Diag(fort::diag::err_drv_lto_without_lld);
   }
 
   // Reject -Z* at the top level, these options should never have been exposed
@@ -3534,9 +3473,8 @@ void Driver::BuildJobs(Compilation &C) const {
           continue;
       }
 
-      // In fort-cl, don't mention unknown arguments here since they have
-      // already been warned about.
-      if (!IsCLMode() || !A->getOption().matches(options::OPT_UNKNOWN))
+      // Warn about unused arguments
+      if (!A->getOption().matches(options::OPT_UNKNOWN))
         Diag(fort::diag::warn_drv_unused_argument)
             << A->getAsString(C.getArgs());
     }
@@ -4236,7 +4174,7 @@ const char *Driver::GetNamedOutputPath(Compilation &C, const JobAction &JA,
     StringRef Name = llvm::sys::path::filename(BaseInput);
     std::pair<StringRef, StringRef> Split = Name.split('.');
     SmallString<128> TmpName;
-    const char *Suffix = types::getTypeTempSuffix(JA.getType(), IsCLMode());
+    const char *Suffix = types::getTypeTempSuffix(JA.getType());
     Arg *A = C.getArgs().getLastArg(options::OPT_fcrash_diagnostics_dir);
     if (CCGenDiagnostics && A) {
       SmallString<128> CrashDirectory(A->getValue());
@@ -4286,23 +4224,15 @@ const char *Driver::GetNamedOutputPath(Compilation &C, const JobAction &JA,
     NamedOutput =
         MakeCLOutputFilename(C.getArgs(), Val, BaseName, types::TY_Image);
   } else if (JA.getType() == types::TY_Image) {
-    if (IsCLMode()) {
-      // fort-cl uses BaseName for the executable name.
-      NamedOutput =
-          MakeCLOutputFilename(C.getArgs(), "", BaseName, types::TY_Image);
-    } else {
-      SmallString<128> Output(getDefaultImageName());
-      Output += OffloadingPrefix;
-      if (MultipleArchs && !BoundArch.empty()) {
-        Output += "-";
-        Output.append(BoundArch);
-      }
-      NamedOutput = C.getArgs().MakeArgString(Output.c_str());
+    SmallString<128> Output(getDefaultImageName());
+    Output += OffloadingPrefix;
+    if (MultipleArchs && !BoundArch.empty()) {
+      Output += "-";
+      Output.append(BoundArch);
+    NamedOutput = C.getArgs().MakeArgString(Output.c_str());
     }
-  } else if (JA.getType() == types::TY_PCH && IsCLMode()) {
-    NamedOutput = C.getArgs().MakeArgString(GetClPchPath(C, BaseName));
   } else {
-    const char *Suffix = types::getTypeTempSuffix(JA.getType(), IsCLMode());
+    const char *Suffix = types::getTypeTempSuffix(JA.getType());
     assert(Suffix && "All types used for output should have a suffix.");
 
     std::string::size_type End = std::string::npos;
@@ -4349,13 +4279,13 @@ const char *Driver::GetNamedOutputPath(Compilation &C, const JobAction &JA,
       StringRef Name = llvm::sys::path::filename(BaseInput);
       std::pair<StringRef, StringRef> Split = Name.split('.');
       std::string TmpName = GetTemporaryPath(
-          Split.first, types::getTypeTempSuffix(JA.getType(), IsCLMode()));
+          Split.first, types::getTypeTempSuffix(JA.getType()));
       return C.addTempFile(C.getArgs().MakeArgString(TmpName));
     }
   }
 
   // As an annoying special case, PCH generation doesn't strip the pathname.
-  if (JA.getType() == types::TY_PCH && !IsCLMode()) {
+  if (JA.getType() == types::TY_PCH) {
     llvm::sys::path::remove_filename(BasePath);
     if (BasePath.empty())
       BasePath = NamedOutput;
@@ -4747,17 +4677,11 @@ bool Driver::GetReleaseVersion(StringRef Str,
 }
 
 std::pair<unsigned, unsigned>
-Driver::getIncludeExcludeOptionFlagMasks(bool IsClCompatMode) const {
+Driver::getIncludeExcludeOptionFlagMasks() const {
   unsigned IncludedFlagsBitmask = 0;
   unsigned ExcludedFlagsBitmask = options::NoDriverOption;
 
-  if (IsClCompatMode) {
-    // Include CL and Core options.
-    IncludedFlagsBitmask |= options::CLOption;
-    IncludedFlagsBitmask |= options::CoreOption;
-  } else {
-    ExcludedFlagsBitmask |= options::CLOption;
-  }
+  ExcludedFlagsBitmask |= options::CLOption;
 
   return std::make_pair(IncludedFlagsBitmask, ExcludedFlagsBitmask);
 }

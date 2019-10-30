@@ -207,11 +207,9 @@ def internal_debug_Group :
 class InternalDriverOpt : Group<internal_driver_Group>,
   Flags<[DriverOption, HelpHidden]>;
 
-// FIXME Implement driver mode and other internal driver options
-// Example for dirver mode:
-// def driver_mode : Joined<["--"], "driver-mode=">, Group<internal_driver_Group>,
-//   Flags<[DriverOption, HelpHidden]>,
-//   HelpText<"Set the driver mode to either 'gcc', 'g++', 'cpp', or 'cl'">;
+def driver_mode : Joined<["--"], "driver-mode=">, Group<internal_driver_Group>,
+  Flags<[DriverOption, HelpHidden]>,
+  HelpText<"Set the driver mode to either 'fortran', or 'cpp'">;
 
 class InternalDebugOpt : Group<internal_debug_Group>,
   Flags<[DriverOption, HelpHidden]>;

@@ -350,11 +350,13 @@ public:
     return 0;
   }
 
+#if 0
   /// Get the default trivial automatic variable initialization.
   virtual LangOptions::TrivialAutoVarInitKind
   GetDefaultTrivialAutoVarInit() const {
     return LangOptions::TrivialAutoVarInitKind::Uninitialized;
   }
+#endif
 
   /// GetDefaultLinker - Get the default linker to use.
   virtual const char *getDefaultLinker() const { return "ld"; }

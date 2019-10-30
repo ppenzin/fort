@@ -64,10 +64,8 @@ class Driver {
   IntrusiveRefCntPtr<vfs::FileSystem> VFS;
 
   enum DriverMode {
-    GCCMode,
-    GXXMode,
+    FortranMode,
     CPPMode,
-    CLMode
   } Mode;
 
   enum SaveTempsMode {
@@ -170,17 +168,11 @@ public:
   typedef SmallVector<std::pair<types::ID, const llvm::opt::Arg *>, 16>
       InputList;
 
-  /// Whether the driver should follow g++ like behavior.
-  bool CCCIsCXX() const { return Mode == GXXMode; }
+  /// Whether the driver should follow gfortan like behavior.
+  bool CCCIsFortran() const { return Mode == FortranMode; }
 
   /// Whether the driver is just the preprocessor.
   bool CCCIsCPP() const { return Mode == CPPMode; }
-
-  /// Whether the driver should follow gcc like behavior.
-  bool CCCIsCC() const { return Mode == GCCMode; }
-
-  /// Whether the driver should follow cl.exe like behavior.
-  bool IsCLMode() const { return Mode == CLMode; }
 
   /// Only print tool bindings, don't build any jobs.
   unsigned CCCPrintBindings : 1;
@@ -284,7 +276,7 @@ private:
 public:
   Driver(StringRef FortExecutable, StringRef TargetTriple,
          DiagnosticsEngine &Diags,
-         IntrusiveRefCntPtr<vfs::FileSystem> VFS = nullptr);
+         IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS = nullptr);
 
   /// @name Accessors
   /// @{
